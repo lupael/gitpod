@@ -384,9 +384,14 @@ func installWorkspacePortRoutes(r *mux.Router, config *RouteHandlerConfig, infoP
 
 // workspacePodResolver resolves to the workspace pod's url from the given request.
 func workspacePodResolver(config *Config, infoProvider WorkspaceInfoProvider, req *http.Request) (url *url.URL, err error) {
+	query := req.URL.Query()
+	idePort := query.Get("idePort")
+	if idePort == "" {
+		idePort = fmt.Sprint(config.WorkspacePodConfig.TheiaPort)
+	}
 	coords := getWorkspaceCoords(req)
 	workspaceInfo := infoProvider.WorkspaceInfo(coords.ID)
-	return buildWorkspacePodURL(workspaceInfo.IPAddress, fmt.Sprint(config.WorkspacePodConfig.TheiaPort))
+	return buildWorkspacePodURL(workspaceInfo.IPAddress, idePort)
 }
 
 // workspacePodPortResolver resolves to the workspace pods ports.
