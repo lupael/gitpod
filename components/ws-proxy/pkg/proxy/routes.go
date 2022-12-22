@@ -384,14 +384,15 @@ func installWorkspacePortRoutes(r *mux.Router, config *RouteHandlerConfig, infoP
 
 // workspacePodResolver resolves to the workspace pod's url from the given request.
 func workspacePodResolver(config *Config, infoProvider WorkspaceInfoProvider, req *http.Request) (url *url.URL, err error) {
-	query := req.URL.Query()
-	idePort := query.Get("idePort")
-	if idePort == "" {
-		idePort = fmt.Sprint(config.WorkspacePodConfig.TheiaPort)
+	var port string
+	if req.URL.Query().Has("gitpodDebug") {
+		port = fmt.Sprint(config.WorkspacePodConfig.IDEDebugPort)
+	} else {
+		port = fmt.Sprint(config.WorkspacePodConfig.TheiaPort)
 	}
 	coords := getWorkspaceCoords(req)
 	workspaceInfo := infoProvider.WorkspaceInfo(coords.ID)
-	return buildWorkspacePodURL(workspaceInfo.IPAddress, idePort)
+	return buildWorkspacePodURL(workspaceInfo.IPAddress, port)
 }
 
 // workspacePodPortResolver resolves to the workspace pods ports.
@@ -403,14 +404,15 @@ func workspacePodPortResolver(config *Config, infoProvider WorkspaceInfoProvider
 
 // workspacePodSupervisorResolver resolves to the workspace pods Supervisor url from the given request.
 func workspacePodSupervisorResolver(config *Config, infoProvider WorkspaceInfoProvider, req *http.Request) (url *url.URL, err error) {
-	query := req.URL.Query()
-	supervisorPort := query.Get("supervisorPort")
-	if supervisorPort == "" {
-		supervisorPort = fmt.Sprint(config.WorkspacePodConfig.SupervisorPort)
+	var port string
+	if req.URL.Query().Has("gitpodDebug") {
+		port = fmt.Sprint(config.WorkspacePodConfig.SupervisorDebugPort)
+	} else {
+		port = fmt.Sprint(config.WorkspacePodConfig.SupervisorPort)
 	}
 	coords := getWorkspaceCoords(req)
 	workspaceInfo := infoProvider.WorkspaceInfo(coords.ID)
-	return buildWorkspacePodURL(workspaceInfo.IPAddress, supervisorPort)
+	return buildWorkspacePodURL(workspaceInfo.IPAddress, port)
 }
 
 func dynamicIDEResolver(config *Config, infoProvider WorkspaceInfoProvider, req *http.Request) (res *url.URL, err error) {

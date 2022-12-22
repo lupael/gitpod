@@ -6073,7 +6073,9 @@ data:
         },
         "workspacePodConfig": {
           "theiaPort": 23000,
+          "ideDebugPort": 25000,
           "supervisorPort": 22999,
+          "supervisorDebugPort": 24999,
           "supervisorImage": "eu.gcr.io/gitpod-core-dev/build/supervisor:test"
         },
         "builtinPages": {
@@ -11293,7 +11295,7 @@ spec:
   template:
     metadata:
       annotations:
-        gitpod.io/checksum_config: 64e51be9e5f633cf09cee6bd25b3c5d0687f9fca3e17e2daf8eeb99e21e0faa7
+        gitpod.io/checksum_config: 1d3e519239eb23a1e2f00e30f73abf47a1a18a74052043e6dc8d1196eed4fd1f
       creationTimestamp: null
       labels:
         app: gitpod
