@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/gitpod-io/gitpod/gitpod-cli/pkg/supervisor"
@@ -32,7 +33,9 @@ var stopTaskCmd = &cobra.Command{
 			cancel          context.CancelFunc
 		)
 
-		client, err := supervisor.New(context.Background())
+		client, err := supervisor.New(context.Background(), &supervisor.SupervisorClientOption{
+			Address: os.Getenv("SUPERVISOR_DEBUG_ADDR"),
+		})
 		if err != nil {
 			log.Fatalf("annot get task list: %s", err)
 		}

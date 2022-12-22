@@ -27,7 +27,9 @@ var listTasksCmd = &cobra.Command{
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		client, err := supervisor.New(ctx)
+		client, err := supervisor.New(ctx, &supervisor.SupervisorClientOption{
+			Address: os.Getenv("SUPERVISOR_DEBUG_ADDR"),
+		})
 		if err != nil {
 			log.Fatalf("cannot get task list: %s", err)
 		}

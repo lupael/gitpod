@@ -181,7 +181,7 @@ func Run(options ...RunOption) {
 
 	// BEWARE: we can only call buildChildProcEnv once, because it might download env vars from a one-time-secret
 	//         URL, which would fail if we tried another time.
-	childProcEnvvars := buildChildProcEnv(cfg, nil)
+	childProcEnvvars := buildChildProcEnv(cfg, nil, opts.RunGP)
 
 	err = AddGitpodUserIfNotExists()
 	if err != nil {
@@ -191,14 +191,17 @@ func Run(options ...RunOption) {
 	configureGit(cfg, childProcEnvvars)
 
 	tokenService := NewInMemoryTokenService()
-	tkns, err := cfg.GetTokens(true)
-	if err != nil {
-		log.WithError(err).Warn("cannot prepare tokens")
-	}
-	for i := range tkns {
-		_, err = tokenService.SetToken(context.Background(), &tkns[i].SetTokenRequest)
+
+	if !opts.RunGP {
+		tkns, err := cfg.GetTokens(true)
 		if err != nil {
 			log.WithError(err).Warn("cannot prepare tokens")
+		}
+		for i := range tkns {
+			_, err = tokenService.SetToken(context.Background(), &tkns[i].SetTokenRequest)
+			if err != nil {
+				log.WithError(err).Warn("cannot prepare tokens")
+			}
 		}
 	}
 
@@ -238,6 +241,12 @@ func Run(options ...RunOption) {
 		desktopIdeReady *ideReadyState = nil
 
 		cstate        = NewInMemoryContentState(cfg.RepoRoot)
+		gitpodService serverapi.APIInterface
+
+		notificationService = NewNotificationService()
+	)
+
+	if !opts.RunGP {
 		gitpodService = serverapi.NewServerApiService(ctx, &serverapi.ServiceConfig{
 			Host:              host,
 			Endpoint:          endpoint,
@@ -245,13 +254,12 @@ func Run(options ...RunOption) {
 			WorkspaceID:       cfg.WorkspaceID,
 			SupervisorVersion: Version,
 		}, tokenService)
+	}
 
-		notificationService = NewNotificationService()
-	)
 	if cfg.DesktopIDE != nil {
 		desktopIdeReady = &ideReadyState{cond: sync.NewCond(&sync.Mutex{})}
 	}
-	if !cfg.isHeadless() {
+	if !cfg.isHeadless() && !opts.RunGP {
 		go trackReadiness(ctx, gitpodService, cfg, cstate, ideReady, desktopIdeReady)
 	}
 	tokenService.provider[KindGit] = []tokenProvider{NewGitTokenProvider(gitpodService, cfg.WorkspaceConfig, notificationService)}
@@ -259,8 +267,15 @@ func Run(options ...RunOption) {
 	gitpodConfigService := config.NewConfigService(cfg.RepoRoot+"/.gitpod.yml", cstate.ContentReady(), log.Log)
 	go gitpodConfigService.Watch(ctx)
 
+	var exposedPorts ports.ExposedPortsInterface
+
+	if !opts.RunGP {
+		exposedPorts = createExposedPortsImpl(cfg, gitpodService)
+	}
+
+	// createExposedPortsImpl(cfg, gitpodService)
 	portMgmt := ports.NewManager(
-		createExposedPortsImpl(cfg, gitpodService),
+		exposedPorts,
 		&ports.PollingServedPortsObserver{
 			RefreshInterval: 2 * time.Second,
 		},
@@ -270,13 +285,14 @@ func Run(options ...RunOption) {
 	)
 
 	topService := NewTopService()
-	topService.Observe(ctx)
 
 	supervisorMetrics := metrics.NewMetrics()
 	var metricsReporter *metrics.GrpcMetricsReporter
 	if opts.RunGP {
 		cstate.MarkContentReady(csapi.WorkspaceInitFromOther)
 	} else {
+		topService.Observe(ctx)
+
 		if !cfg.isHeadless() {
 			go startAnalyze(ctx, cfg, gitpodConfigService, topService, gitpodService)
 		}
@@ -355,17 +371,28 @@ func Run(options ...RunOption) {
 		wg       sync.WaitGroup
 		shutdown = make(chan ShutdownReason, 1)
 	)
-	wg.Add(1)
-	go startContentInit(ctx, cfg, &wg, cstate, supervisorMetrics)
+
+	if !opts.RunGP {
+		wg.Add(1)
+		go startContentInit(ctx, cfg, &wg, cstate, supervisorMetrics)
+	}
+
 	wg.Add(1)
 	go startAPIEndpoint(ctx, cfg, &wg, apiServices, tunneledPortsService, metricsReporter, apiEndpointOpts...)
-	wg.Add(1)
-	go startSSHServer(ctx, cfg, &wg, childProcEnvvars)
+
+	if !opts.RunGP {
+		wg.Add(1)
+		go startSSHServer(ctx, cfg, &wg, childProcEnvvars)
+	}
+
 	wg.Add(1)
 	tasksSuccessChan := make(chan taskSuccess, 1)
 	go taskManager.Run(ctx, &wg, tasksSuccessChan)
-	wg.Add(1)
-	go socketActivationForDocker(ctx, &wg, termMux)
+
+	if !opts.RunGP {
+		wg.Add(1)
+		go socketActivationForDocker(ctx, &wg, termMux)
+	}
 
 	if cfg.isHeadless() {
 		wg.Add(1)
@@ -899,7 +926,7 @@ func prepareIDELaunch(cfg *Config, ideConfig *IDEConfig, childProcEnvvars []stri
 // of envvars. If envvars is nil, os.Environ() is used.
 //
 // Beware: if config contains an OTS URL the results may differ on subsequent calls.
-func buildChildProcEnv(cfg *Config, envvars []string) []string {
+func buildChildProcEnv(cfg *Config, envvars []string, runGP bool) []string {
 	if envvars == nil {
 		envvars = os.Environ()
 	}
@@ -919,7 +946,13 @@ func buildChildProcEnv(cfg *Config, envvars []string) []string {
 
 		envs[nme] = val
 	}
-	envs["SUPERVISOR_ADDR"] = fmt.Sprintf("localhost:%d", cfg.APIEndpointPort)
+
+	if runGP {
+		envs["SUPERVISOR_ADDR"] = fmt.Sprintf("localhost:%d", cfg.HostAPIEndpointPort)
+		envs["SUPERVISOR_DEBUG_ADDR"] = fmt.Sprintf("localhost:%d", cfg.APIEndpointPort)
+	} else {
+		envs["SUPERVISOR_ADDR"] = fmt.Sprintf("localhost:%d", cfg.APIEndpointPort)
+	}
 
 	if cfg.EnvvarOTS != "" {
 		es, err := downloadEnvvarOTS(cfg.EnvvarOTS)
