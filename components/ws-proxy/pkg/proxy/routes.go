@@ -398,9 +398,14 @@ func workspacePodPortResolver(config *Config, infoProvider WorkspaceInfoProvider
 
 // workspacePodSupervisorResolver resolves to the workspace pods Supervisor url from the given request.
 func workspacePodSupervisorResolver(config *Config, infoProvider WorkspaceInfoProvider, req *http.Request) (url *url.URL, err error) {
+	query := req.URL.Query()
+	supervisorPort := query.Get("supervisorPort")
+	if supervisorPort == "" {
+		supervisorPort = fmt.Sprint(config.WorkspacePodConfig.SupervisorPort)
+	}
 	coords := getWorkspaceCoords(req)
 	workspaceInfo := infoProvider.WorkspaceInfo(coords.ID)
-	return buildWorkspacePodURL(workspaceInfo.IPAddress, fmt.Sprint(config.WorkspacePodConfig.SupervisorPort))
+	return buildWorkspacePodURL(workspaceInfo.IPAddress, supervisorPort)
 }
 
 func dynamicIDEResolver(config *Config, infoProvider WorkspaceInfoProvider, req *http.Request) (res *url.URL, err error) {
