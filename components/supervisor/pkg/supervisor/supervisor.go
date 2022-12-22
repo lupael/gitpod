@@ -947,8 +947,8 @@ func buildChildProcEnv(cfg *Config, envvars []string, runGP bool) []string {
 		envs[nme] = val
 	}
 
-	if runGP {
-		envs["SUPERVISOR_ADDR"] = fmt.Sprintf("localhost:%d", cfg.HostAPIEndpointPort)
+	if runGP && cfg.HostAPIEndpointPort != nil {
+		envs["SUPERVISOR_ADDR"] = fmt.Sprintf("localhost:%d", *cfg.HostAPIEndpointPort)
 		envs["SUPERVISOR_DEBUG_ADDR"] = fmt.Sprintf("localhost:%d", cfg.APIEndpointPort)
 	} else {
 		envs["SUPERVISOR_ADDR"] = fmt.Sprintf("localhost:%d", cfg.APIEndpointPort)
