@@ -384,10 +384,8 @@ func Run(options ...RunOption) {
 	wg.Add(1)
 	go startAPIEndpoint(ctx, cfg, &wg, apiServices, tunneledPortsService, metricsReporter, opts.RunGP, apiEndpointOpts...)
 
-	if !opts.RunGP {
-		wg.Add(1)
-		go startSSHServer(ctx, cfg, &wg, childProcEnvvars)
-	}
+	wg.Add(1)
+	go startSSHServer(ctx, cfg, &wg, childProcEnvvars)
 
 	wg.Add(1)
 	tasksSuccessChan := make(chan taskSuccess, 1)

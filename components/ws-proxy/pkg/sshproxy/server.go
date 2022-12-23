@@ -225,13 +225,21 @@ func (s *Server) HandleConn(c net.Conn) {
 		return
 	}
 	workspaceId := clientConn.Permissions.Extensions["workspaceId"]
-	wsInfo := s.workspaceInfoProvider.WorkspaceInfo(workspaceId)
+	var debugWorkspace bool
+	if strings.HasPrefix(workspaceId, "debug-") {
+		debugWorkspace = true
+		workspaceId = strings.TrimPrefix("debug-")
+	}
 	if wsInfo == nil {
 		ReportSSHAttemptMetrics(ErrWorkspaceNotFound)
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-	key, err := s.GetWorkspaceSSHKey(ctx, wsInfo.IPAddress)
+	supervisorPort := "22999"
+	if debugWorkspace {
+		supervisorPort = "24999"
+	}
+	key, err := s.GetWorkspaceSSHKey(ctx, wsInfo.IPAddress, supervisorPort)
 	if err != nil {
 		cancel()
 		s.TrackSSHConnection(wsInfo, "connect", ErrCreateSSHKey)
@@ -248,7 +256,11 @@ func (s *Server) HandleConn(c net.Conn) {
 		OwnerUserId:         wsInfo.OwnerUserId,
 		WorkspacePrivateKey: key,
 	}
-	remoteAddr := wsInfo.IPAddress + ":23001"
+	sshPort := "23001"
+	if debugWorkspace {
+		sshPort = "25001"
+	}
+	remoteAddr := wsInfo.IPAddress + ":" + sshPort
 	conn, err := net.Dial("tcp", remoteAddr)
 	if err != nil {
 		s.TrackSSHConnection(wsInfo, "connect", ErrConnFailed)
@@ -371,8 +383,8 @@ func (s *Server) VerifyPublicKey(ctx context.Context, wsInfo *p.WorkspaceInfo, p
 	return false, nil
 }
 
-func (s *Server) GetWorkspaceSSHKey(ctx context.Context, workspaceIP string) (ssh.Signer, error) {
-	supervisorConn, err := grpc.Dial(workspaceIP+":22999", grpc.WithTransportCredentials(insecure.NewCredentials()))
+func (s *Server) GetWorkspaceSSHKey(ctx context.Context, workspaceIP string, supervisorPort string) (ssh.Signer, error) {
+	supervisorConn, err := grpc.Dial(workspaceIP+":"+supervisorPort, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, xerrors.Errorf("failed connecting to supervisor: %w", err)
 	}
