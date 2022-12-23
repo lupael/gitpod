@@ -52,8 +52,12 @@ const looksLikeWorkspaceHostname = (originHostname: URL, gitpodHostName: string)
     }
     const url = new GitpodHostUrl(originHostname);
     const workspaceId = url.workspaceId;
+    const debugWorkspace = url.debugWorkspace;
     if (workspaceId) {
         const hostname = url.url.hostname as string;
+        if (debugWorkspace && hostname.startsWith("debug-" + workspaceId)) {
+            return true;
+        }
         if (hostname.startsWith(workspaceId)) {
             return true;
         }
