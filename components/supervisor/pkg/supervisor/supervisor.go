@@ -1153,8 +1153,11 @@ func startAPIEndpoint(ctx context.Context, cfg *Config, wg *sync.WaitGroup, serv
 		if err != nil {
 			log.WithError(err).Fatal("cannot access host supervisor")
 		}
+		noProxy := func(fullMethod string) bool {
+			return strings.Contains(fullMethod, "TasksStatus") || strings.Contains(fullMethod, "TerminalService") || strings.Contains(fullMethod, "InfoService")
+		}
 		unaryInterceptors = append(unaryInterceptors, func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-			if strings.Contains(info.FullMethod, "TasksStatus") || strings.Contains(info.FullMethod, "TerminalService") {
+			if noProxy(info.FullMethod) {
 				return handler(ctx, req)
 			}
 			md, _ := metadata.FromIncomingContext(ctx)
@@ -1164,7 +1167,7 @@ func startAPIEndpoint(ctx context.Context, cfg *Config, wg *sync.WaitGroup, serv
 		})
 		streamProxy := grpc_proxy.TransparentHandler(grpc_proxy.DefaultDirector(conn))
 		streamInterceptors = append(streamInterceptors, func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-			if strings.Contains(info.FullMethod, "TasksStatus") || strings.Contains(info.FullMethod, "TerminalService") {
+			if noProxy(info.FullMethod) {
 				return handler(srv, ss)
 			}
 			return streamProxy(srv, ss)
@@ -1252,7 +1255,10 @@ func startAPIEndpoint(ctx context.Context, cfg *Config, wg *sync.WaitGroup, serv
 		if strings.Contains(r.Header.Get("Content-Type"), "application/grpc") {
 			websocket.IsWebSocketUpgrade(r)
 			http.StripPrefix("/_supervisor/v1", grpcWebServer).ServeHTTP(w, r)
-		} else if hostProxy == nil || strings.HasPrefix(r.URL.Path, "/_supervisor/v1/terminal") || strings.HasPrefix(r.URL.Path, "/_supervisor/v1/status/tasks") {
+		} else if hostProxy == nil ||
+			strings.HasPrefix(r.URL.Path, "/_supervisor/v1/terminal") ||
+			strings.HasPrefix(r.URL.Path, "/_supervisor/v1/info/workspace") ||
+			strings.HasPrefix(r.URL.Path, "/_supervisor/v1/status/tasks") {
 			http.StripPrefix("/_supervisor", restMux).ServeHTTP(w, r)
 		} else {
 			hostProxy.ServeHTTP(w, r)
