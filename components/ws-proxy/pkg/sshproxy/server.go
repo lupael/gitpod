@@ -122,6 +122,11 @@ func New(signers []ssh.Signer, workspaceInfoProvider p.WorkspaceInfoProvider, he
 		NoClientAuthCallback: func(conn ssh.ConnMetadata) (*ssh.Permissions, error) {
 			args := strings.Split(conn.User(), "#")
 			workspaceId := args[0]
+			var debugWorkspace string
+			if strings.HasPrefix(workspaceId, "debug-") {
+				debugWorkspace = "true"
+				workspaceId = strings.TrimPrefix(workspaceId, "debug-")
+			}
 			wsInfo, err := server.GetWorkspaceInfo(workspaceId)
 			if err != nil {
 				return nil, err
@@ -136,12 +141,18 @@ func New(signers []ssh.Signer, workspaceInfoProvider p.WorkspaceInfoProvider, he
 			server.TrackSSHConnection(wsInfo, "auth", nil)
 			return &ssh.Permissions{
 				Extensions: map[string]string{
-					"workspaceId": workspaceId,
+					"workspaceId":    workspaceId,
+					"debugWorkspace": debugWorkspace,
 				},
 			}, nil
 		},
 		PasswordCallback: func(conn ssh.ConnMetadata, password []byte) (perm *ssh.Permissions, err error) {
 			workspaceId, ownerToken := conn.User(), string(password)
+			var debugWorkspace string
+			if strings.HasPrefix(workspaceId, "debug-") {
+				debugWorkspace = "true"
+				workspaceId = strings.TrimPrefix(workspaceId, "debug-")
+			}
 			wsInfo, err := server.GetWorkspaceInfo(workspaceId)
 			if err != nil {
 				return nil, err
@@ -154,12 +165,18 @@ func New(signers []ssh.Signer, workspaceInfoProvider p.WorkspaceInfoProvider, he
 			}
 			return &ssh.Permissions{
 				Extensions: map[string]string{
-					"workspaceId": workspaceId,
+					"workspaceId":    workspaceId,
+					"debugWorkspace": debugWorkspace,
 				},
 			}, nil
 		},
 		PublicKeyCallback: func(conn ssh.ConnMetadata, pk ssh.PublicKey) (perm *ssh.Permissions, err error) {
 			workspaceId := conn.User()
+			var debugWorkspace string
+			if strings.HasPrefix(workspaceId, "debug-") {
+				debugWorkspace = "true"
+				workspaceId = strings.TrimPrefix(workspaceId, "debug-")
+			}
 			wsInfo, err := server.GetWorkspaceInfo(workspaceId)
 			if err != nil {
 				return nil, err
@@ -175,7 +192,8 @@ func New(signers []ssh.Signer, workspaceInfoProvider p.WorkspaceInfoProvider, he
 			}
 			return &ssh.Permissions{
 				Extensions: map[string]string{
-					"workspaceId": workspaceId,
+					"workspaceId":    workspaceId,
+					"debugWorkspace": debugWorkspace,
 				},
 			}, nil
 		},
@@ -225,11 +243,7 @@ func (s *Server) HandleConn(c net.Conn) {
 		return
 	}
 	workspaceId := clientConn.Permissions.Extensions["workspaceId"]
-	var debugWorkspace bool
-	if strings.HasPrefix(workspaceId, "debug-") {
-		debugWorkspace = true
-		workspaceId = strings.TrimPrefix(workspaceId, "debug-")
-	}
+	debugWorkspace := clientConn.Permissions.Extensions["debugWorkspace"] == "true"
 	wsInfo := s.workspaceInfoProvider.WorkspaceInfo(workspaceId)
 	if wsInfo == nil {
 		ReportSSHAttemptMetrics(ErrWorkspaceNotFound)

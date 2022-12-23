@@ -1152,7 +1152,10 @@ func startAPIEndpoint(ctx context.Context, cfg *Config, wg *sync.WaitGroup, serv
 			log.WithError(err).Fatal("cannot access host supervisor")
 		}
 		noProxy := func(fullMethod string) bool {
-			return strings.Contains(fullMethod, "TasksStatus") || strings.Contains(fullMethod, "TerminalService") || strings.Contains(fullMethod, "InfoService")
+			return strings.Contains(fullMethod, "TasksStatus") ||
+				strings.Contains(fullMethod, "TerminalService") ||
+				strings.Contains(fullMethod, "InfoService") ||
+				strings.Contains(fullMethod, "CreateSSHKeyPair")
 		}
 		unaryInterceptors = append(unaryInterceptors, func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 			if noProxy(info.FullMethod) {
