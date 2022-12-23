@@ -37,11 +37,14 @@ import (
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	grpcruntime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/improbable-eng/grpc-web/go/grpcweb"
+	grpc_proxy "github.com/mwitkow/grpc-proxy/proxy"
 	"github.com/prometheus/common/route"
 	"github.com/soheilhy/cmux"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/xerrors"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/gitpod-io/gitpod/common-go/analytics"
@@ -378,7 +381,7 @@ func Run(options ...RunOption) {
 	}
 
 	wg.Add(1)
-	go startAPIEndpoint(ctx, cfg, &wg, apiServices, tunneledPortsService, metricsReporter, apiEndpointOpts...)
+	go startAPIEndpoint(ctx, cfg, &wg, apiServices, tunneledPortsService, metricsReporter, opts.RunGP, apiEndpointOpts...)
 
 	if !opts.RunGP {
 		wg.Add(1)
@@ -947,12 +950,7 @@ func buildChildProcEnv(cfg *Config, envvars []string, runGP bool) []string {
 		envs[nme] = val
 	}
 
-	if runGP && cfg.HostAPIEndpointPort != nil {
-		envs["SUPERVISOR_ADDR"] = fmt.Sprintf("localhost:%d", *cfg.HostAPIEndpointPort)
-		envs["SUPERVISOR_DEBUG_ADDR"] = fmt.Sprintf("localhost:%d", cfg.APIEndpointPort)
-	} else {
-		envs["SUPERVISOR_ADDR"] = fmt.Sprintf("localhost:%d", cfg.APIEndpointPort)
-	}
+	envs["SUPERVISOR_ADDR"] = fmt.Sprintf("localhost:%d", cfg.APIEndpointPort)
 
 	if cfg.EnvvarOTS != "" {
 		es, err := downloadEnvvarOTS(cfg.EnvvarOTS)
@@ -1137,7 +1135,7 @@ func isBlacklistedEnvvar(name string) bool {
 	return false
 }
 
-func startAPIEndpoint(ctx context.Context, cfg *Config, wg *sync.WaitGroup, services []RegisterableService, tunneled *ports.TunneledPortsService, metricsReporter *metrics.GrpcMetricsReporter, opts ...grpc.ServerOption) {
+func startAPIEndpoint(ctx context.Context, cfg *Config, wg *sync.WaitGroup, services []RegisterableService, tunneled *ports.TunneledPortsService, metricsReporter *metrics.GrpcMetricsReporter, runGP bool, opts ...grpc.ServerOption) {
 	defer wg.Done()
 	defer log.Debug("startAPIEndpoint shutdown")
 
@@ -1148,6 +1146,30 @@ func startAPIEndpoint(ctx context.Context, cfg *Config, wg *sync.WaitGroup, serv
 
 	var unaryInterceptors []grpc.UnaryServerInterceptor
 	var streamInterceptors []grpc.StreamServerInterceptor
+	if cfg.HostAPIEndpointPort != nil {
+		url := fmt.Sprintf("localhost:%d", *cfg.HostAPIEndpointPort)
+		conn, err := grpc.DialContext(ctx, url, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.WithError(err).Fatal("cannot access host supervisor")
+		}
+		unaryInterceptors = append(unaryInterceptors, func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+			if strings.Contains(info.FullMethod, "TasksStatus") || strings.Contains(info.FullMethod, "TerminalService") {
+				return handler(ctx, req)
+			}
+			md, _ := metadata.FromIncomingContext(ctx)
+			var resp interface{}
+			respErr := conn.Invoke(metadata.NewOutgoingContext(ctx, md.Copy()), info.FullMethod, req, resp)
+			return resp, respErr
+		})
+		streamProxy := grpc_proxy.TransparentHandler(grpc_proxy.DefaultDirector(conn))
+		streamInterceptors = append(streamInterceptors, func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+			if strings.Contains(info.FullMethod, "TasksStatus") || strings.Contains(info.FullMethod, "TerminalService") {
+				return handler(srv, ss)
+			}
+			return streamProxy(srv, ss)
+		})
+	}
+
 	if cfg.DebugEnable {
 		unaryInterceptors = append(unaryInterceptors, grpc_logrus.UnaryServerInterceptor(log.Log))
 		streamInterceptors = append(streamInterceptors, grpc_logrus.StreamServerInterceptor(log.Log))
@@ -1218,14 +1240,25 @@ func startAPIEndpoint(ctx context.Context, cfg *Config, wg *sync.WaitGroup, serv
 	routes.Handle("/", httputil.NewSingleHostReverseProxy(ideURL))
 	routes.Handle("/_supervisor/frontend/", http.StripPrefix("/_supervisor/frontend", http.FileServer(http.Dir(cfg.StaticConfig.FrontendLocation))))
 
-	routes.Handle("/_supervisor/v1/", http.StripPrefix("/_supervisor", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	routeHandler := http.StripPrefix("/_supervisor", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.Header.Get("Content-Type"), "application/grpc") ||
 			websocket.IsWebSocketUpgrade(r) {
 			http.StripPrefix("/v1", grpcWebServer).ServeHTTP(w, r)
 		} else {
 			restMux.ServeHTTP(w, r)
 		}
-	})))
+	}))
+	if runGP && cfg.HostAPIEndpointPort != nil {
+		routes.Handle("/_supervisor/v1/terminal", routeHandler)
+		routes.Handle("/_supervisor/v1/status/tasks", routeHandler)
+		routes.Handle("/_supervisor/v1/", httputil.NewSingleHostReverseProxy(&url.URL{
+			Scheme: "http",
+			Host:   fmt.Sprintf("localhost:%d", *cfg.HostAPIEndpointPort),
+		}))
+	} else {
+		routes.Handle("/_supervisor/v1/", routeHandler)
+	}
+
 	upgrader := websocket.Upgrader{}
 	routes.Handle("/_supervisor/tunnel", http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		wsConn, err := upgrader.Upgrade(rw, r, nil)

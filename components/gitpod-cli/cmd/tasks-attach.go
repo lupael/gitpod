@@ -30,9 +30,7 @@ var attachTaskCmd = &cobra.Command{
 	Short: "Attach to a workspace task",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		client, err := supervisor.New(context.Background(), &supervisor.SupervisorClientOption{
-			Address: os.Getenv("SUPERVISOR_DEBUG_ADDR"),
-		})
+		client, err := supervisor.New(context.Background())
 		if err != nil {
 			log.Fatal(err)
 		}
