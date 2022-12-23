@@ -31,13 +31,13 @@ import (
 	"syscall"
 	"time"
 
+	grpc_proxy "github.com/adamthesax/grpc-proxy/proxy"
 	"github.com/gorilla/websocket"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_logrus "github.com/grpc-ecosystem/go-grpc-middleware/logging/logrus"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	grpcruntime "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/improbable-eng/grpc-web/go/grpcweb"
-	grpc_proxy "github.com/mwitkow/grpc-proxy/proxy"
 	"github.com/prometheus/common/route"
 	"github.com/soheilhy/cmux"
 	"golang.org/x/crypto/ssh"
@@ -46,6 +46,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/gitpod-io/gitpod/common-go/analytics"
 	"github.com/gitpod-io/gitpod/common-go/log"
@@ -1157,7 +1158,7 @@ func startAPIEndpoint(ctx context.Context, cfg *Config, wg *sync.WaitGroup, serv
 				return handler(ctx, req)
 			}
 			md, _ := metadata.FromIncomingContext(ctx)
-			var resp interface{}
+			resp := &emptypb.Empty{}
 			respErr := conn.Invoke(metadata.NewOutgoingContext(ctx, md.Copy()), info.FullMethod, req, resp)
 			return resp, respErr
 		})
@@ -1184,11 +1185,6 @@ func startAPIEndpoint(ctx context.Context, cfg *Config, wg *sync.WaitGroup, serv
 		unaryInterceptors = append(unaryInterceptors, grpcMetrics.UnaryServerInterceptor())
 		streamInterceptors = append(streamInterceptors, grpcMetrics.StreamServerInterceptor())
 
-		opts = append(opts,
-			grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(unaryInterceptors...)),
-			grpc.StreamInterceptor(grpc_middleware.ChainStreamServer(streamInterceptors...)),
-		)
-
 		err = metricsReporter.Registry.Register(grpcMetrics)
 		if err != nil {
 			log.WithError(err).Error("supervisor: failed to register grpc metrics")
@@ -1196,6 +1192,11 @@ func startAPIEndpoint(ctx context.Context, cfg *Config, wg *sync.WaitGroup, serv
 			go metricsReporter.Report(ctx)
 		}
 	}
+
+	opts = append(opts,
+		grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(unaryInterceptors...)),
+		grpc.StreamInterceptor(grpc_middleware.ChainStreamServer(streamInterceptors...)),
+	)
 
 	m := cmux.New(l)
 	restMux := grpcruntime.NewServeMux()
@@ -1240,24 +1241,23 @@ func startAPIEndpoint(ctx context.Context, cfg *Config, wg *sync.WaitGroup, serv
 	routes.Handle("/", httputil.NewSingleHostReverseProxy(ideURL))
 	routes.Handle("/_supervisor/frontend/", http.StripPrefix("/_supervisor/frontend", http.FileServer(http.Dir(cfg.StaticConfig.FrontendLocation))))
 
-	routeHandler := http.StripPrefix("/_supervisor", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.Header.Get("Content-Type"), "application/grpc") ||
-			websocket.IsWebSocketUpgrade(r) {
-			http.StripPrefix("/v1", grpcWebServer).ServeHTTP(w, r)
-		} else {
-			restMux.ServeHTTP(w, r)
-		}
-	}))
+	var hostProxy *httputil.ReverseProxy
 	if runGP && cfg.HostAPIEndpointPort != nil {
-		routes.Handle("/_supervisor/v1/terminal", routeHandler)
-		routes.Handle("/_supervisor/v1/status/tasks", routeHandler)
-		routes.Handle("/_supervisor/v1/", httputil.NewSingleHostReverseProxy(&url.URL{
+		hostProxy = httputil.NewSingleHostReverseProxy(&url.URL{
 			Scheme: "http",
 			Host:   fmt.Sprintf("localhost:%d", *cfg.HostAPIEndpointPort),
-		}))
-	} else {
-		routes.Handle("/_supervisor/v1/", routeHandler)
+		})
 	}
+	routes.Handle("/_supervisor/v1/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.Header.Get("Content-Type"), "application/grpc") {
+			websocket.IsWebSocketUpgrade(r)
+			http.StripPrefix("/_supervisor/v1", grpcWebServer).ServeHTTP(w, r)
+		} else if hostProxy == nil || strings.HasPrefix(r.URL.Path, "/_supervisor/v1/terminal") || strings.HasPrefix(r.URL.Path, "/_supervisor/v1/status/tasks") {
+			http.StripPrefix("/_supervisor", restMux).ServeHTTP(w, r)
+		} else {
+			hostProxy.ServeHTTP(w, r)
+		}
+	}))
 
 	upgrader := websocket.Upgrader{}
 	routes.Handle("/_supervisor/tunnel", http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
