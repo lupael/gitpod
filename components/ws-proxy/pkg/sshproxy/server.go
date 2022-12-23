@@ -228,8 +228,9 @@ func (s *Server) HandleConn(c net.Conn) {
 	var debugWorkspace bool
 	if strings.HasPrefix(workspaceId, "debug-") {
 		debugWorkspace = true
-		workspaceId = strings.TrimPrefix("debug-")
+		workspaceId = strings.TrimPrefix(workspaceId, "debug-")
 	}
+	wsInfo := s.workspaceInfoProvider.WorkspaceInfo(workspaceId)
 	if wsInfo == nil {
 		ReportSSHAttemptMetrics(ErrWorkspaceNotFound)
 		return
