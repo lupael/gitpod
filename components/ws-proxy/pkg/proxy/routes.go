@@ -384,13 +384,13 @@ func installWorkspacePortRoutes(r *mux.Router, config *RouteHandlerConfig, infoP
 
 // workspacePodResolver resolves to the workspace pod's url from the given request.
 func workspacePodResolver(config *Config, infoProvider WorkspaceInfoProvider, req *http.Request) (url *url.URL, err error) {
+	coords := getWorkspaceCoords(req)
 	var port string
-	if req.URL.Query().Has("gitpodDebug") {
+	if coords.Debug {
 		port = fmt.Sprint(config.WorkspacePodConfig.IDEDebugPort)
 	} else {
 		port = fmt.Sprint(config.WorkspacePodConfig.TheiaPort)
 	}
-	coords := getWorkspaceCoords(req)
 	workspaceInfo := infoProvider.WorkspaceInfo(coords.ID)
 	return buildWorkspacePodURL(workspaceInfo.IPAddress, port)
 }
@@ -404,13 +404,13 @@ func workspacePodPortResolver(config *Config, infoProvider WorkspaceInfoProvider
 
 // workspacePodSupervisorResolver resolves to the workspace pods Supervisor url from the given request.
 func workspacePodSupervisorResolver(config *Config, infoProvider WorkspaceInfoProvider, req *http.Request) (url *url.URL, err error) {
+	coords := getWorkspaceCoords(req)
 	var port string
-	if req.URL.Query().Has("gitpodDebug") {
+	if coords.Debug {
 		port = fmt.Sprint(config.WorkspacePodConfig.SupervisorDebugPort)
 	} else {
 		port = fmt.Sprint(config.WorkspacePodConfig.SupervisorPort)
 	}
-	coords := getWorkspaceCoords(req)
 	workspaceInfo := infoProvider.WorkspaceInfo(coords.ID)
 	return buildWorkspacePodURL(workspaceInfo.IPAddress, port)
 }

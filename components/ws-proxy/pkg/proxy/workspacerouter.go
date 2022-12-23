@@ -28,6 +28,9 @@ const (
 	// This pattern matches v4 UUIDs as well as the new generated workspace ids (e.g. pink-panda-ns35kd21).
 	workspaceIDRegex   = "(?P<" + workspaceIDIdentifier + ">[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-z]{2,16}-[0-9a-z]{2,16}-[0-9a-z]{8,11})"
 	workspacePortRegex = "(?P<" + workspacePortIdentifier + ">[0-9]+)-"
+
+	debugWorkspaceIdentifier = "debugWorkspace"
+	debugWorkspaceRegex      = "(?P<" + debugWorkspaceIdentifier + ">debug-)?"
 )
 
 // WorkspaceRouter is a function that configures subrouters (one for theia, one for the exposed ports) on the given router
@@ -73,9 +76,11 @@ func HostBasedRouter(header, wsHostSuffix string, wsHostSuffixRegex string) Work
 type hostHeaderProvider func(req *http.Request) string
 
 func matchWorkspaceHostHeader(wsHostSuffix string, headerProvider hostHeaderProvider, matchPort bool) mux.MatcherFunc {
-	regexPrefix := workspaceIDRegex
+	var regexPrefix string
 	if matchPort {
 		regexPrefix = workspacePortRegex + workspaceIDRegex
+	} else {
+		regexPrefix = debugWorkspaceRegex + workspaceIDRegex
 	}
 
 	r := regexp.MustCompile("^" + regexPrefix + wsHostSuffix)
@@ -86,25 +91,32 @@ func matchWorkspaceHostHeader(wsHostSuffix string, headerProvider hostHeaderProv
 			return false
 		}
 
-		var workspaceID, workspacePort string
+		var workspaceID, workspacePort, debugWorkspace string
 		matches := r.FindStringSubmatch(hostname)
+		if len(matches) < 3 {
+			return false
+		}
 		if matchPort {
-			if len(matches) < 3 {
-				return false
-			}
 			// https://3000-coral-dragon-ilr0r6eq.ws-eu10.gitpod.io/index.html
+			// debugWorkspace:
 			// workspaceID: coral-dragon-ilr0r6eq
 			// workspacePort: 3000
 			workspaceID = matches[2]
 			workspacePort = matches[1]
 		} else {
-			if len(matches) < 2 {
-				return false
-			}
-			// https://coral-dragon-ilr0r6eq.ws-eu10.gitpod.io/index.html
+			// https://debug-coral-dragon-ilr0r6eq.ws-eu10.gitpod.io/index.html
+			// debugWorkspace: true
 			// workspaceID: coral-dragon-ilr0r6eq
 			// workspacePort:
-			workspaceID = matches[1]
+			if matches[1] != "" {
+				debugWorkspace = "true"
+			}
+
+			// https://coral-dragon-ilr0r6eq.ws-eu10.gitpod.io/index.html
+			// debugWorkspace:
+			// workspaceID: coral-dragon-ilr0r6eq
+			// workspacePort:
+			workspaceID = matches[2]
 		}
 
 		if workspaceID == "" {
@@ -121,6 +133,9 @@ func matchWorkspaceHostHeader(wsHostSuffix string, headerProvider hostHeaderProv
 		m.Vars[workspaceIDIdentifier] = workspaceID
 		if workspacePort != "" {
 			m.Vars[workspacePortIdentifier] = workspacePort
+		}
+		if debugWorkspace != "" {
+			m.Vars[debugWorkspaceIdentifier] = debugWorkspace
 		}
 
 		return true
@@ -143,8 +158,9 @@ func matchBlobserveHostHeader(wsHostSuffix string, headerProvider hostHeaderProv
 func getWorkspaceCoords(req *http.Request) WorkspaceCoords {
 	vars := mux.Vars(req)
 	return WorkspaceCoords{
-		ID:   vars[workspaceIDIdentifier],
-		Port: vars[workspacePortIdentifier],
+		ID:    vars[workspaceIDIdentifier],
+		Port:  vars[workspacePortIdentifier],
+		Debug: vars[debugWorkspaceIdentifier] == "true",
 	}
 }
 
