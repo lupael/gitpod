@@ -37,7 +37,8 @@ const (
 )
 
 var (
-	workspaces = []WorkspaceInfo{
+	debugWorkspaceURL = "https://debug-amaranth-smelt-9ba20cc1.test-domain.com/"
+	workspaces        = []WorkspaceInfo{
 		{
 			IDEImage:        "gitpod-io/ide:latest",
 			SupervisorImage: "gitpod-io/supervisor:latest",
@@ -58,8 +59,8 @@ var (
 	ideServerHost       = "localhost:20000"
 	workspacePort       = uint16(20001)
 	supervisorPort      = uint16(20002)
-	workspaceDebugPort  = uint16(20003)
-	supervisorDebugPort = uint16(20004)
+	workspaceDebugPort  = uint16(20004)
+	supervisorDebugPort = uint16(20005)
 	workspaceHost       = fmt.Sprintf("localhost:%d", workspacePort)
 	portServeHost       = fmt.Sprintf("localhost:%d", workspaces[0].Ports[0].Port)
 	blobServeHost       = "localhost:20003"
@@ -202,11 +203,13 @@ func TestRoutes(t *testing.T) {
 		Body   string
 	}
 	type Targets struct {
-		IDE        *Target
-		Blobserve  *Target
-		Workspace  *Target
-		Supervisor *Target
-		Port       *Target
+		IDE             *Target
+		Blobserve       *Target
+		Workspace       *Target
+		DebugWorkspace  *Target
+		Supervisor      *Target
+		DebugSupervisor *Target
+		Port            *Target
 	}
 	tests := []struct {
 		Desc        string
@@ -596,6 +599,41 @@ func TestRoutes(t *testing.T) {
 				Body:   "host: 28080-amaranth-smelt-9ba20cc1.test-domain.com\n",
 			},
 		},
+		{
+			Desc:   "debug IDE authorized GE",
+			Config: &config,
+			Request: modifyRequest(httptest.NewRequest("GET", debugWorkspaceURL, nil),
+				addHostHeader,
+				addOwnerToken(workspaces[0].InstanceID, workspaces[0].Auth.OwnerToken),
+			),
+			Targets: &Targets{DebugWorkspace: &Target{Status: http.StatusOK}},
+			Expectation: Expectation{
+				Status: http.StatusOK,
+				Header: http.Header{
+					"Content-Length": {"23"},
+					"Content-Type":   {"text/plain; charset=utf-8"},
+					"Vary":           {"Accept-Encoding"},
+				},
+				Body: "debug workspace hit: /\n",
+			},
+		},
+		{
+			Desc:   "debug supervisor frontend /main.js",
+			Config: &config,
+			Request: modifyRequest(httptest.NewRequest("GET", debugWorkspaceURL+"_supervisor/frontend/main.js", nil),
+				addHostHeader,
+			),
+			Targets: &Targets{DebugSupervisor: &Target{Status: http.StatusOK}},
+			Expectation: Expectation{
+				Status: http.StatusOK,
+				Header: http.Header{
+					"Content-Length": {"52"},
+					"Content-Type":   {"text/plain; charset=utf-8"},
+					"Vary":           {"Accept-Encoding"},
+				},
+				Body: "supervisor debug hit: /_supervisor/frontend/main.js\n",
+			},
+		},
 	}
 
 	log.Init("ws-proxy-test", "", false, true)
@@ -643,7 +681,9 @@ func TestRoutes(t *testing.T) {
 			controlTarget(test.Targets.Blobserve, "blobserve", blobServeHost, true)
 			controlTarget(test.Targets.Port, "port", portServeHost, true)
 			controlTarget(test.Targets.Workspace, "workspace", workspaceHost, false)
+			controlTarget(test.Targets.DebugWorkspace, "debug workspace", fmt.Sprintf("localhost:%d", workspaceDebugPort), false)
 			controlTarget(test.Targets.Supervisor, "supervisor", fmt.Sprintf("localhost:%d", supervisorPort), false)
+			controlTarget(test.Targets.DebugSupervisor, "supervisor debug", fmt.Sprintf("localhost:%d", supervisorDebugPort), false)
 
 			cfg := config
 			if test.Config != nil {

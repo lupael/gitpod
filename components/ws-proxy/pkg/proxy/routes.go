@@ -94,6 +94,9 @@ func installWorkspaceRoutes(r *mux.Router, config *RouteHandlerConfig, ip Worksp
 	})
 	routes.HandleSupervisorFrontendRoute(faviconRouter.NewRoute())
 
+	routes.HandleDirectSupervisorRoute(enableCompression(r).PathPrefix("/_supervisor/frontend").MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+		return rm.Vars[debugWorkspaceIdentifier] == "true"
+	}), false)
 	routes.HandleSupervisorFrontendRoute(enableCompression(r).PathPrefix("/_supervisor/frontend"))
 
 	routes.HandleDirectSupervisorRoute(r.PathPrefix("/_supervisor/v1/status/supervisor"), false)
@@ -253,8 +256,7 @@ func (ir *ideRoutes) HandleRoot(route *mux.Route) {
 	workspaceIDEPass := ir.Config.WorkspaceAuthHandler(
 		proxyPass(ir.Config, ir.InfoProvider, workspacePodResolver),
 	)
-	// always hit the blobserver to ensure that blob is downloaded
-	r.NewRoute().HandlerFunc(proxyPass(ir.Config, ir.InfoProvider, dynamicIDEResolver, func(h *proxyPassConfig) {
+	blobserveIDEPass := proxyPass(ir.Config, ir.InfoProvider, dynamicIDEResolver, func(h *proxyPassConfig) {
 		h.Transport = &blobserveTransport{
 			transport: h.Transport,
 			Config:    ir.Config.Config,
@@ -315,7 +317,18 @@ func (ir *ideRoutes) HandleRoot(route *mux.Route) {
 				return image
 			},
 		}
-	}, withHTTPErrorHandler(workspaceIDEPass), withUseTargetHost()))
+	}, withHTTPErrorHandler(workspaceIDEPass), withUseTargetHost())
+
+	r.NewRoute().HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		coords := getWorkspaceCoords(r)
+		if coords.Debug {
+			// always hit backend for IDE debugging
+			workspaceIDEPass.ServeHTTP(w, r)
+		} else {
+			// always hit the blobserver to ensure that blob is downloaded
+			blobserveIDEPass.ServeHTTP(w, r)
+		}
+	})
 }
 
 const imagePathSeparator = "/__files__"
