@@ -27,14 +27,6 @@ describe("express-util", function () {
             expect(result).to.be.true;
         });
 
-        it("should return true for debug workspace locations", function () {
-            const result = isAllowedWebsocketDomain(
-                "http://debug-moccasin-ferret-155799b3.ws-eu.gpl-2732-ws-csrf.staging.gitpod.io",
-                HOSTURL_HOSTNAME,
-            );
-            expect(result).to.be.true;
-        });
-
         it("should return true for dashboard", function () {
             const result = isAllowedWebsocketDomain("http://gpl-2732-ws-csrf.staging.gitpod.io", HOSTURL_HOSTNAME);
             expect(result).to.be.true;
