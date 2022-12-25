@@ -70,7 +70,7 @@ func NewRouteHandlerConfig(config *Config, opts ...RouteHandlerConfigOpt) (*Rout
 type RouteHandler = func(r *mux.Router, config *RouteHandlerConfig)
 
 // installWorkspaceRoutes configures routing of workspace and IDE requests.
-func installWorkspaceRoutes(r *mux.Router, config *RouteHandlerConfig, ip WorkspaceInfoProvider, hostKeyList []ssh.Signer) {
+func installWorkspaceRoutes(r *mux.Router, config *RouteHandlerConfig, ip WorkspaceInfoProvider, hostKeyList []ssh.Signer) error {
 	r.Use(logHandler)
 
 	// Note: the order of routes defines their priority.
@@ -115,7 +115,7 @@ func installWorkspaceRoutes(r *mux.Router, config *RouteHandlerConfig, ip Worksp
 			h.ServeHTTP(resp, req)
 		})
 	})
-	routes.HandleRoot(rootRouter.NewRoute())
+	return routes.HandleRoot(rootRouter.NewRoute())
 }
 
 func enableCompression(r *mux.Router) *mux.Router {
@@ -247,15 +247,24 @@ type BlobserveInlineVars struct {
 	SupervisorImage string `json:"supervisor"`
 }
 
-func (ir *ideRoutes) HandleRoot(route *mux.Route) {
+func (ir *ideRoutes) ideProxyPass(opts ...proxyPassOpt) http.Handler {
+	return ir.Config.WorkspaceAuthHandler(
+		proxyPass(ir.Config, ir.InfoProvider, workspacePodResolver),
+	)
+}
+
+func (ir *ideRoutes) HandleRoot(route *mux.Route) error {
+	showPortNotFoundPage, err := servePortNotFoundPage(ir.Config.Config)
+	if err != nil {
+		return err
+	}
+
 	r := route.Subrouter()
 	r.Use(logRouteHandlerHandler("handleRoot"))
 	r.Use(ir.Config.CorsHandler)
 	r.Use(ir.workspaceMustExistHandler)
 
-	workspaceIDEPass := ir.Config.WorkspaceAuthHandler(
-		proxyPass(ir.Config, ir.InfoProvider, workspacePodResolver),
-	)
+	debugIDEPass := ir.ideProxyPass(withHTTPErrorHandler(showPortNotFoundPage))
 	blobserveIDEPass := proxyPass(ir.Config, ir.InfoProvider, dynamicIDEResolver, func(h *proxyPassConfig) {
 		h.Transport = &blobserveTransport{
 			transport: h.Transport,
@@ -317,18 +326,19 @@ func (ir *ideRoutes) HandleRoot(route *mux.Route) {
 				return image
 			},
 		}
-	}, withHTTPErrorHandler(workspaceIDEPass), withUseTargetHost())
+	}, withHTTPErrorHandler(ir.ideProxyPass()), withUseTargetHost())
 
 	r.NewRoute().HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		coords := getWorkspaceCoords(r)
 		if coords.Debug {
 			// always hit backend for IDE debugging
-			workspaceIDEPass.ServeHTTP(w, r)
+			debugIDEPass.ServeHTTP(w, r)
 		} else {
 			// always hit the blobserver to ensure that blob is downloaded
 			blobserveIDEPass.ServeHTTP(w, r)
 		}
 	})
+	return nil
 }
 
 const imagePathSeparator = "/__files__"
