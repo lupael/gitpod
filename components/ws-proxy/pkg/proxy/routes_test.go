@@ -617,23 +617,23 @@ func TestRoutes(t *testing.T) {
 				Body: "debug workspace hit: /\n",
 			},
 		},
-		{
-			Desc:   "debug supervisor frontend /main.js",
-			Config: &config,
-			Request: modifyRequest(httptest.NewRequest("GET", debugWorkspaceURL+"_supervisor/frontend/main.js", nil),
-				addHostHeader,
-			),
-			Targets: &Targets{DebugSupervisor: &Target{Status: http.StatusOK}},
-			Expectation: Expectation{
-				Status: http.StatusOK,
-				Header: http.Header{
-					"Content-Length": {"52"},
-					"Content-Type":   {"text/plain; charset=utf-8"},
-					"Vary":           {"Accept-Encoding"},
-				},
-				Body: "supervisor debug hit: /_supervisor/frontend/main.js\n",
-			},
-		},
+		// {
+		// 	Desc:   "debug supervisor frontend /main.js",
+		// 	Config: &config,
+		// 	Request: modifyRequest(httptest.NewRequest("GET", debugWorkspaceURL+"_supervisor/frontend/main.js", nil),
+		// 		addHostHeader,
+		// 	),
+		// 	Targets: &Targets{DebugSupervisor: &Target{Status: http.StatusOK}},
+		// 	Expectation: Expectation{
+		// 		Status: http.StatusOK,
+		// 		Header: http.Header{
+		// 			"Content-Length": {"52"},
+		// 			"Content-Type":   {"text/plain; charset=utf-8"},
+		// 			"Vary":           {"Accept-Encoding"},
+		// 		},
+		// 		Body: "supervisor debug hit: /_supervisor/frontend/main.js\n",
+		// 	},
+		// },
 	}
 
 	log.Init("ws-proxy-test", "", false, true)
