@@ -78,6 +78,7 @@ RUN yarn --cwd extensions compile \
 # Check pkg/blobserve/blobserve.go, `inlineVars` method
 RUN cp /vscode-web/out/vs/gitpod/browser/workbench/workbench.html /vscode-web/index.html \
     && cp /vscode-web/out/vs/gitpod/browser/workbench/callback.html /vscode-web/callback.html \
+    && sed -i -e 's#baseUrl =.*;#baseUrl = window.location.origin;#g' /vscode-web/index.html \
     && sed -i -e 's#{{WORKBENCH_WEB_BASE_URL}}#.#g' /vscode-web/index.html \
     && sed -i -e "s/{{VERSION}}/$CODE_QUALITY-$CODE_COMMIT/g" /vscode-web/index.html
 
