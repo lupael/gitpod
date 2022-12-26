@@ -115,7 +115,14 @@ func installWorkspaceRoutes(r *mux.Router, config *RouteHandlerConfig, ip Worksp
 			h.ServeHTTP(resp, req)
 		})
 	})
-	return routes.HandleRoot(rootRouter.NewRoute())
+	err := routes.HandleDebugRoot(rootRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+		return rm.Vars[debugWorkspaceIdentifier] == "true"
+	}))
+	if err != nil {
+		return err
+	}
+	routes.HandleRoot(rootRouter.NewRoute())
+	return nil
 }
 
 func enableCompression(r *mux.Router) *mux.Router {
@@ -247,25 +254,34 @@ type BlobserveInlineVars struct {
 	SupervisorImage string `json:"supervisor"`
 }
 
-func (ir *ideRoutes) ideProxyPass(opts ...proxyPassOpt) http.Handler {
-	return ir.Config.WorkspaceAuthHandler(
-		proxyPass(ir.Config, ir.InfoProvider, workspacePodResolver),
-	)
-}
-
-func (ir *ideRoutes) HandleRoot(route *mux.Route) error {
+func (ir *ideRoutes) HandleDebugRoot(route *mux.Route) error {
 	showPortNotFoundPage, err := servePortNotFoundPage(ir.Config.Config)
 	if err != nil {
 		return err
 	}
 
 	r := route.Subrouter()
+	r.Use(logRouteHandlerHandler("handleDebugRoot"))
+	r.Use(ir.Config.CorsHandler)
+	r.Use(ir.workspaceMustExistHandler)
+	r.Use(ir.Config.WorkspaceAuthHandler)
+	// filter all session cookies
+	r.Use(sensitiveCookieHandler(ir.Config.Config.GitpodInstallation.HostName))
+	r.NewRoute().HandlerFunc(proxyPass(ir.Config, ir.InfoProvider, workspacePodResolver, withHTTPErrorHandler(showPortNotFoundPage)))
+	return nil
+}
+
+func (ir *ideRoutes) HandleRoot(route *mux.Route) {
+	r := route.Subrouter()
 	r.Use(logRouteHandlerHandler("handleRoot"))
 	r.Use(ir.Config.CorsHandler)
 	r.Use(ir.workspaceMustExistHandler)
 
-	debugIDEPass := ir.ideProxyPass(withHTTPErrorHandler(showPortNotFoundPage))
-	blobserveIDEPass := proxyPass(ir.Config, ir.InfoProvider, dynamicIDEResolver, func(h *proxyPassConfig) {
+	directIDEPass := ir.Config.WorkspaceAuthHandler(
+		proxyPass(ir.Config, ir.InfoProvider, workspacePodResolver),
+	)
+	// always hit the blobserver to ensure that blob is downloaded
+	r.NewRoute().HandlerFunc(proxyPass(ir.Config, ir.InfoProvider, dynamicIDEResolver, func(h *proxyPassConfig) {
 		h.Transport = &blobserveTransport{
 			transport: h.Transport,
 			Config:    ir.Config.Config,
@@ -326,19 +342,7 @@ func (ir *ideRoutes) HandleRoot(route *mux.Route) error {
 				return image
 			},
 		}
-	}, withHTTPErrorHandler(ir.ideProxyPass()), withUseTargetHost())
-
-	r.NewRoute().HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		coords := getWorkspaceCoords(r)
-		if coords.Debug {
-			// always hit backend for IDE debugging
-			debugIDEPass.ServeHTTP(w, r)
-		} else {
-			// always hit the blobserver to ensure that blob is downloaded
-			blobserveIDEPass.ServeHTTP(w, r)
-		}
-	})
-	return nil
+	}, withHTTPErrorHandler(directIDEPass), withUseTargetHost()))
 }
 
 const imagePathSeparator = "/__files__"
