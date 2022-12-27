@@ -94,9 +94,9 @@ func installWorkspaceRoutes(r *mux.Router, config *RouteHandlerConfig, ip Worksp
 	})
 	routes.HandleSupervisorFrontendRoute(faviconRouter.NewRoute())
 
-	// routes.HandleDirectSupervisorRoute(enableCompression(r).PathPrefix("/_supervisor/frontend").MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
-	// 	return rm.Vars[debugWorkspaceIdentifier] == "true"
-	// }), false)
+	routes.HandleDirectSupervisorRoute(enableCompression(r).PathPrefix("/_supervisor/frontend").MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+		return rm.Vars[debugWorkspaceIdentifier] == "true"
+	}), false)
 	routes.HandleSupervisorFrontendRoute(enableCompression(r).PathPrefix("/_supervisor/frontend"))
 
 	routes.HandleDirectSupervisorRoute(r.PathPrefix("/_supervisor/v1/status/supervisor"), false)
@@ -115,12 +115,12 @@ func installWorkspaceRoutes(r *mux.Router, config *RouteHandlerConfig, ip Worksp
 			h.ServeHTTP(resp, req)
 		})
 	})
-	// err := routes.HandleDebugRoot(rootRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
-	// 	return rm.Vars[debugWorkspaceIdentifier] == "true"
-	// }))
-	// if err != nil {
-	// 	return err
-	// }
+	err := routes.HandleDebugRoot(rootRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+		return rm.Vars[debugWorkspaceIdentifier] == "true"
+	}))
+	if err != nil {
+		return err
+	}
 	routes.HandleRoot(rootRouter.NewRoute())
 	return nil
 }
@@ -277,7 +277,7 @@ func (ir *ideRoutes) HandleRoot(route *mux.Route) {
 	r.Use(ir.Config.CorsHandler)
 	r.Use(ir.workspaceMustExistHandler)
 
-	workspaceIDEPass := ir.Config.WorkspaceAuthHandler(
+	directIDEPass := ir.Config.WorkspaceAuthHandler(
 		proxyPass(ir.Config, ir.InfoProvider, workspacePodResolver),
 	)
 	// always hit the blobserver to ensure that blob is downloaded
@@ -342,7 +342,7 @@ func (ir *ideRoutes) HandleRoot(route *mux.Route) {
 				return image
 			},
 		}
-	}, withHTTPErrorHandler(workspaceIDEPass), withUseTargetHost()))
+	}, withHTTPErrorHandler(directIDEPass), withUseTargetHost()))
 }
 
 const imagePathSeparator = "/__files__"
