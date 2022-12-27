@@ -1484,6 +1484,10 @@ data:
             ],
             "inlineStatic": [
               {
+                "search": "window.location.origin;",
+                "replacement": "'${ide}';"
+              },
+              {
                 "search": "${window.location.origin}",
                 "replacement": "."
               },
@@ -9831,7 +9835,7 @@ spec:
     metadata:
       annotations:
         gitpod.io: hello
-        gitpod.io/checksum_config: f53bfe17888be51da5fce1993c73c75420a1ea22a48ae12c1a1b1ba218ca416c
+        gitpod.io/checksum_config: 79c8371b46627786e1503f2d75d06b44f3842a9c4bfb53eff9d153a0b000c011
         hello: world
       creationTimestamp: null
       labels:

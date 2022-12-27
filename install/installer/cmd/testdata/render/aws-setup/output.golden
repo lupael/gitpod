@@ -1234,6 +1234,10 @@ data:
             ],
             "inlineStatic": [
               {
+                "search": "window.location.origin;",
+                "replacement": "'${ide}';"
+              },
+              {
                 "search": "${window.location.origin}",
                 "replacement": "."
               },
@@ -8396,7 +8400,7 @@ spec:
   template:
     metadata:
       annotations:
-        gitpod.io/checksum_config: a46080fdf584e8531ec566bcd7761b7ceca365777f0859476a0a9c68beb99737
+        gitpod.io/checksum_config: 4cf8c1dc1a742a6532052408497a232b8ca6486d3038d9c0b77f90cb126ae968
       creationTimestamp: null
       labels:
         app: gitpod
