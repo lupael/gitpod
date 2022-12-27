@@ -359,6 +359,54 @@ func TestRoutes(t *testing.T) {
 			},
 		},
 		{
+			Desc:   "port foreign resource",
+			Config: &config,
+			Request: modifyRequest(httptest.NewRequest("GET", "https://v--sr1o1nu24nqdf809l0u27jk5t7"+wsHostSuffix+"/28080-amaranth-smelt-9ba20cc1/test.html", nil),
+				addHostHeader,
+				addOwnerToken(workspaces[0].InstanceID, workspaces[0].Auth.OwnerToken),
+			),
+			Targets: &Targets{
+				Port: &Target{
+					Handler: func(w http.ResponseWriter, r *http.Request, requestCount uint8) {
+						fmt.Fprintf(w, "host: %s\n", r.Host)
+						fmt.Fprintf(w, "path: %s\n", r.URL.Path)
+					},
+				},
+			},
+			Expectation: Expectation{
+				Status: http.StatusOK,
+				Header: http.Header{
+					"Content-Length": {"69"},
+					"Content-Type":   {"text/plain; charset=utf-8"},
+				},
+				Body: "host: v--sr1o1nu24nqdf809l0u27jk5t7.test-domain.com\npath: /test.html\n",
+			},
+		},
+		{
+			Desc:   "debug foreign resource",
+			Config: &config,
+			Request: modifyRequest(httptest.NewRequest("GET", "https://v--sr1o1nu24nqdf809l0u27jk5t7"+wsHostSuffix+"/debug-amaranth-smelt-9ba20cc1/test.html", nil),
+				addHostHeader,
+				addOwnerToken(workspaces[0].InstanceID, workspaces[0].Auth.OwnerToken),
+			),
+			Targets: &Targets{
+				DebugWorkspace: &Target{
+					Handler: func(w http.ResponseWriter, r *http.Request, requestCount uint8) {
+						fmt.Fprintf(w, "host: %s\n", r.Host)
+						fmt.Fprintf(w, "path: %s\n", r.URL.Path)
+					},
+				},
+			},
+			Expectation: Expectation{
+				Status: http.StatusOK,
+				Header: http.Header{
+					"Content-Length": {"69"},
+					"Content-Type":   {"text/plain; charset=utf-8"},
+				},
+				Body: "host: v--sr1o1nu24nqdf809l0u27jk5t7.test-domain.com\npath: /test.html\n",
+			},
+		},
+		{
 			Desc:   "CORS preflight",
 			Config: &config,
 			Request: modifyRequest(httptest.NewRequest("GET", workspaces[0].URL+"somewhere/in/the/ide", nil),

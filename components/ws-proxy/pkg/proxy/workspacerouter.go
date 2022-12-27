@@ -31,6 +31,8 @@ const (
 
 	debugWorkspaceIdentifier = "debugWorkspace"
 	debugWorkspaceRegex      = "(?P<" + debugWorkspaceIdentifier + ">debug-)?"
+
+	workspacePathPrefixIdentifier = "workspacePathPrefix"
 )
 
 // WorkspaceRouter is a function that configures subrouters (one for theia, one for the exposed ports) on the given router
@@ -59,9 +61,9 @@ func HostBasedRouter(header, wsHostSuffix string, wsHostSuffixRegex string) Work
 				}
 				return host
 			}
-			blobserveRouter = r.MatcherFunc(matchBlobserveHostHeader(wsHostSuffix, getHostHeader)).Subrouter()
-			portRouter      = r.MatcherFunc(matchWorkspaceHostHeader(wsHostSuffix, getHostHeader, true)).Subrouter()
-			ideRouter       = r.MatcherFunc(matchWorkspaceHostHeader(allClusterWsHostSuffixRegex, getHostHeader, false)).Subrouter()
+			foreignRouter = r.MatcherFunc(matchForeignHostHeader(wsHostSuffix, getHostHeader)).Subrouter()
+			portRouter    = r.MatcherFunc(matchWorkspaceHostHeader(wsHostSuffix, getHostHeader, true)).Subrouter()
+			ideRouter     = r.MatcherFunc(matchWorkspaceHostHeader(allClusterWsHostSuffixRegex, getHostHeader, false)).Subrouter()
 		)
 
 		r.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -69,7 +71,7 @@ func HostBasedRouter(header, wsHostSuffix string, wsHostSuffixRegex string) Work
 			log.Debugf("no match for path %s, host: %s", req.URL.Path, hostname)
 			w.WriteHeader(http.StatusNotFound)
 		})
-		return ideRouter, portRouter, blobserveRouter
+		return ideRouter, portRouter, foreignRouter
 	}
 }
 
@@ -142,7 +144,10 @@ func matchWorkspaceHostHeader(wsHostSuffix string, headerProvider hostHeaderProv
 	}
 }
 
-func matchBlobserveHostHeader(wsHostSuffix string, headerProvider hostHeaderProvider) mux.MatcherFunc {
+func matchForeignHostHeader(wsHostSuffix string, headerProvider hostHeaderProvider) mux.MatcherFunc {
+	pathPortRegex := regexp.MustCompile("^/" + workspacePortRegex + workspaceIDRegex + "/")
+	pathDebugRegex := regexp.MustCompile("^/" + debugWorkspaceRegex + workspaceIDRegex + "/")
+
 	r := regexp.MustCompile("^(?:v--)?[0-9a-v]+" + wsHostSuffix)
 	return func(req *http.Request, m *mux.RouteMatch) bool {
 		hostname := headerProvider(req)
@@ -151,7 +156,29 @@ func matchBlobserveHostHeader(wsHostSuffix string, headerProvider hostHeaderProv
 		}
 
 		matches := r.FindStringSubmatch(hostname)
-		return len(matches) >= 1
+		if len(matches) < 1 {
+			return false
+		}
+		matches = pathPortRegex.FindStringSubmatch(req.URL.Path)
+		if len(matches) < 3 {
+			matches = pathDebugRegex.FindStringSubmatch(req.URL.Path)
+		}
+		if len(matches) < 3 {
+			return true
+		}
+
+		if m.Vars == nil {
+			m.Vars = make(map[string]string)
+		}
+		m.Vars[workspacePathPrefixIdentifier] = strings.TrimRight(matches[0], "/")
+		m.Vars[workspaceIDIdentifier] = matches[2]
+		if matches[1] == "debug-" {
+			m.Vars[debugWorkspaceIdentifier] = "true"
+		} else {
+			m.Vars[workspacePortIdentifier] = matches[1]
+		}
+
+		return true
 	}
 }
 

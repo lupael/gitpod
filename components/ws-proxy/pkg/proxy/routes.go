@@ -115,9 +115,9 @@ func installWorkspaceRoutes(r *mux.Router, config *RouteHandlerConfig, ip Worksp
 			h.ServeHTTP(resp, req)
 		})
 	})
-	err := routes.HandleDebugRoot(rootRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+	err := installDebugWorkspaceRoutes(rootRouter.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
 		return rm.Vars[debugWorkspaceIdentifier] == "true"
-	}))
+	}).Subrouter(), routes.Config, routes.InfoProvider)
 	if err != nil {
 		return err
 	}
@@ -254,23 +254,6 @@ type BlobserveInlineVars struct {
 	SupervisorImage string `json:"supervisor"`
 }
 
-func (ir *ideRoutes) HandleDebugRoot(route *mux.Route) error {
-	showPortNotFoundPage, err := servePortNotFoundPage(ir.Config.Config)
-	if err != nil {
-		return err
-	}
-
-	r := route.Subrouter()
-	r.Use(logRouteHandlerHandler("handleDebugRoot"))
-	r.Use(ir.Config.CorsHandler)
-	r.Use(ir.workspaceMustExistHandler)
-	r.Use(ir.Config.WorkspaceAuthHandler)
-	// filter all session cookies
-	r.Use(sensitiveCookieHandler(ir.Config.Config.GitpodInstallation.HostName))
-	r.NewRoute().HandlerFunc(proxyPass(ir.Config, ir.InfoProvider, workspacePodResolver, withHTTPErrorHandler(showPortNotFoundPage)))
-	return nil
-}
-
 func (ir *ideRoutes) HandleRoot(route *mux.Route) {
 	r := route.Subrouter()
 	r.Use(logRouteHandlerHandler("handleRoot"))
@@ -345,6 +328,30 @@ func (ir *ideRoutes) HandleRoot(route *mux.Route) {
 	}, withHTTPErrorHandler(directIDEPass), withUseTargetHost()))
 }
 
+func installForeignRoutes(r *mux.Router, config *RouteHandlerConfig, infoProvider WorkspaceInfoProvider) error {
+	installWorkspacePortRoutes(r.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+		workspacePathPrefix := rm.Vars[workspacePathPrefixIdentifier]
+		if workspacePathPrefix == "" || rm.Vars[workspacePortIdentifier] == "" {
+			return false
+		}
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, workspacePathPrefix)
+		return true
+	}).Subrouter(), config, infoProvider)
+	err := installDebugWorkspaceRoutes(r.MatcherFunc(func(r *http.Request, rm *mux.RouteMatch) bool {
+		workspacePathPrefix := rm.Vars[workspacePathPrefixIdentifier]
+		if workspacePathPrefix == "" || rm.Vars[debugWorkspaceIdentifier] != "true" {
+			return false
+		}
+		r.URL.Path = strings.TrimPrefix(r.URL.Path, workspacePathPrefix)
+		return true
+	}).Subrouter(), config, infoProvider)
+	if err != nil {
+		return err
+	}
+	installBlobserveRoutes(r.NewRoute().Subrouter(), config, infoProvider)
+	return nil
+}
+
 const imagePathSeparator = "/__files__"
 
 // installBlobserveRoutes  implements long-lived caching with versioned URLs, see https://web.dev/http-cache/#versioned-urls
@@ -368,6 +375,22 @@ func installBlobserveRoutes(r *mux.Router, config *RouteHandlerConfig, infoProvi
 		return &dst, nil
 	}
 	r.NewRoute().Handler(proxyPass(config, infoProvider, targetResolver, withLongTermCaching(), withUseTargetHost()))
+}
+
+// installWorkspacePortRoutes configures for debug workspace.
+func installDebugWorkspaceRoutes(r *mux.Router, config *RouteHandlerConfig, infoProvider WorkspaceInfoProvider) error {
+	showPortNotFoundPage, err := servePortNotFoundPage(config.Config)
+	if err != nil {
+		return err
+	}
+
+	r.Use(logHandler)
+	r.Use(config.CorsHandler)
+	r.Use(config.WorkspaceAuthHandler)
+	// filter all session cookies
+	r.Use(sensitiveCookieHandler(config.Config.GitpodInstallation.HostName))
+	r.NewRoute().HandlerFunc(proxyPass(config, infoProvider, workspacePodResolver, withHTTPErrorHandler(showPortNotFoundPage)))
+	return nil
 }
 
 // installWorkspacePortRoutes configures routing for exposed ports.
